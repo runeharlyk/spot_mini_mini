@@ -32,7 +32,7 @@ class BezierGait():
         self.SwRef = 0.0
         self.Stref = 0.0
         # Whether Reference Foot has Touched Down
-        self.TD = False
+        self.touchDown = False
 
         # Stance Time
         self.Tswing = Tswing
@@ -60,7 +60,7 @@ class BezierGait():
         self.SwRef = 0.0
         self.Stref = 0.0
         # Whether Reference Foot has Touched Down
-        self.TD = False
+        self.touchDown = False
 
     def GetPhase(self, index, Tstance, Tswing):
         """Retrieves the phase of an individual leg.
@@ -117,7 +117,7 @@ class BezierGait():
             self.SwRef = Sw_phase
             # REF Touchdown at End of Swing
             if self.SwRef >= 0.999:
-                self.TD = True
+                self.touchDown = True
             # else:
             #     self.TD = False
         return Sw_phase, StanceSwing
@@ -168,9 +168,9 @@ class BezierGait():
            has occured, and whether this warrants
            resetting the touchdown time
         """
-        if self.SwRef >= 0.9 and self.TD:
+        if self.SwRef >= 0.9 and self.touchDown:
             self.TD_time = self.time
-            self.TD = False
+            self.touchDown = False
             self.SwRef = 0.0
 
     def BernSteinPoly(self, t, k, point):
@@ -324,8 +324,7 @@ class BezierGait():
 
         return phi_arc
 
-    def SwingStep(self, phase, L, LateralFraction, YawRate, clearance_height,
-                  T_bf, key, index):
+    def SwingStep(self, phase, gaitState, T_bf, key, index):
         """Calculates the step coordinates for the Bezier (swing) period
            using a combination of forward and rotational step coordinates
            initially decomposed from user input of
@@ -348,10 +347,15 @@ class BezierGait():
 
         # Get Foot Coordinates for Forward Motion
         X_delta_lin, Y_delta_lin, Z_delta_lin = self.BezierSwing(
-            phase, L, LateralFraction, clearance_height)
+            phase,
+            gaitState.stepLength,
+            gaitState.lateralFraction,
+            gaitState.clearanceHeight,
+        )
 
         X_delta_rot, Y_delta_rot, Z_delta_rot = self.BezierSwing(
-            phase, YawRate, phi_arc, clearance_height)
+            phase, gaitState.yawRate, phi_arc, gaitState.clearanceHeight
+        )
 
         coord = np.array([
             X_delta_lin + X_delta_rot, Y_delta_lin + Y_delta_rot,
@@ -362,8 +366,7 @@ class BezierGait():
 
         return coord
 
-    def StanceStep(self, phase, L, LateralFraction, YawRate, penetration_depth,
-                   T_bf, key, index):
+    def StanceStep(self, phase, gaitState, T_bf, key, index):
         """Calculates the step coordinates for the Sine (stance) period
            using a combination of forward and rotational step coordinates
            initially decomposed from user input of
@@ -386,10 +389,15 @@ class BezierGait():
 
         # Get Foot Coordinates for Forward Motion
         X_delta_lin, Y_delta_lin, Z_delta_lin = self.SineStance(
-            phase, L, LateralFraction, penetration_depth)
+            phase,
+            gaitState.stepLength,
+            gaitState.lateralFraction,
+            gaitState.penetrationDepth,
+        )
 
         X_delta_rot, Y_delta_rot, Z_delta_rot = self.SineStance(
-            phase, YawRate, phi_arc, penetration_depth)
+            phase, gaitState.yawRate, phi_arc, gaitState.penetrationDepth
+        )
 
         coord = np.array([
             X_delta_lin + X_delta_rot, Y_delta_lin + Y_delta_rot,
@@ -400,8 +408,7 @@ class BezierGait():
 
         return coord
 
-    def GetFootStep(self, L, LateralFraction, YawRate, clearance_height,
-                    penetration_depth, Tstance, T_bf, index, key):
+    def GetFootStep(self, gaitState, Tstance, T_bf, index, key):
         """Calculates the step coordinates in either the Bezier or
            Sine portion of the trajectory depending on the retrieved phase
 
@@ -427,92 +434,56 @@ class BezierGait():
         self.Phases[index] = stored_phase
         # print("LEG: {} \t PHASE: {}".format(index, stored_phase))
         if StanceSwing == STANCE:
-            return self.StanceStep(phase, L, LateralFraction, YawRate,
-                                   penetration_depth, T_bf, key, index)
+            return self.StanceStep(phase, gaitState, T_bf, key, index)
         elif StanceSwing == SWING:
-            return self.SwingStep(phase, L, LateralFraction, YawRate,
-                                  clearance_height, T_bf, key, index)
+            return self.SwingStep(phase, gaitState, T_bf, key, index)
 
-    def GenerateTrajectory(self,
-                           L,
-                           LateralFraction,
-                           YawRate,
-                           vel,
-                           T_bf_,
-                           T_bf_curr,
-                           clearance_height=0.06,
-                           penetration_depth=0.01,
-                           contacts=[0, 0, 0, 0],
-                           dt=None):
-        """Calculates the step coordinates for each foot
-
-           :param L: step length
-           :param LateralFraction: determines how lateral the movement is
-           :param YawRate: the desired body yaw rate
-           :param vel: the desired step velocity
-           :param clearance_height: foot clearance height during swing phase
-           :param penetration_depth: foot penetration depth during stance phase
-           :param contacts: array containing 1 for contact and 0 otherwise
-           :param dt: the time step
-
-           :returns: Foot Coordinates relative to unmodified body
-        """
-        # First, get Tstance from desired speed and stride length
-        # NOTE: L is HALF of stride length
-        if vel != 0.0:
-            Tstance = 2.0 * abs(L) / abs(vel)
+    def GenerateTrajectory(self, bodyState, gaitState, dt):
+        """Calculates the step coordinates for each foot"""
+        if gaitState.stepVelocity != 0.0:
+            Tstance = 2.0 * abs(gaitState.stepLength) / abs(gaitState.stepVelocity)
         else:
             Tstance = 0.0
-            L = 0.0
-            self.TD = False
+            gaitState.stepLength = 0.0
+            self.touchDown = False
             self.time = 0.0
             self.time_since_last_TD = 0.0
 
-        # Then, get time since last Touchdown and increment time counter
-        if dt is None:
-            dt = self.dt
-
-        YawRate *= dt
+        gaitState.yawRate *= dt
 
         # Catch infeasible timesteps
         if Tstance < dt:
             Tstance = 0.0
-            L = 0.0
-            self.TD = False
+            gaitState.stepLength = 0.0
+            self.touchDown = False
             self.time = 0.0
             self.time_since_last_TD = 0.0
-            YawRate = 0.0
+            gaitState.yawRate = 0.0
         # NOTE: MUCH MORE STABLE WITH THIS
         elif Tstance > 1.3 * self.Tswing:
             Tstance = 1.3 * self.Tswing
 
-        # Check contacts
-        if contacts[0] == 1 and Tstance > dt:
-            self.TD = True
+        if gaitState.contacts[0] == 1 and Tstance > dt:
+            self.touchDown = True
 
         self.Increment(dt, Tstance + self.Tswing)
 
-        T_bf = copy.deepcopy(T_bf_)
-        for i, (key, Tbf_in) in enumerate(T_bf_.items()):
-            # TODO: MAKE THIS MORE ELEGANT
-            if key == "FL":
-                self.ref_idx = i
-                self.dSref[i] = 0.0
-            if key == "FR":
-                self.dSref[i] = 0.5
-            if key == "BL":
-                self.dSref[i] = 0.5
-            if key == "BR":
-                self.dSref[i] = 0.0
+        T_bf = copy.deepcopy(bodyState.worldFeetPositions)
+        ref_dS = {"FL": 0.0, "FR": 0.5, "BL": 0.5, "BR": 0.0}
+        for i, (key, Tbf_in) in enumerate(bodyState.worldFeetPositions.items()):
+            self.ref_idx = i if key == "FL" else self.ref_idx
+            self.dSref[i] = ref_dS[key]
             _, p_bf = TransToRp(Tbf_in)
             if Tstance > 0.0:
-                step_coord = self.GetFootStep(L, LateralFraction, YawRate,
-                                              clearance_height,
-                                              penetration_depth, Tstance, p_bf,
-                                              i, key)
+                step_coord = self.GetFootStep(
+                    gaitState,
+                    Tstance,
+                    p_bf,
+                    i,
+                    key,
+                )
             else:
                 step_coord = np.array([0.0, 0.0, 0.0])
-            T_bf[key][0, 3] = Tbf_in[0, 3] + step_coord[0]
-            T_bf[key][1, 3] = Tbf_in[1, 3] + step_coord[1]
-            T_bf[key][2, 3] = Tbf_in[2, 3] + step_coord[2]
+            for j in range(3):
+                T_bf[key][j, 3] += step_coord[j]
         return T_bf

@@ -1,221 +1,211 @@
 #!/usr/bin/env python
 
 import numpy as np
-import matplotlib.pyplot as plt
 import copy
-
 import sys
 
-sys.path.append('../../')
+sys.path.append("../../")
 
 from spotmicro.GymEnvs.spot_bezier_env import spotBezierEnv
 from spotmicro.util.gui import GUI
 from spotmicro.Kinematics.SpotKinematics import SpotModel
-from spotmicro.Kinematics.LieAlgebra import RPY
 from spotmicro.GaitGenerator.Bezier import BezierGait
-from spotmicro.spot_env_randomizer import SpotEnvRandomizer
-
-# TESTING
 from spotmicro.OpenLoopSM.SpotOL import BezierStepper
 
-import time
-import os
-
-import argparse
-
-# ARGUMENTS
-descr = "Spot Mini Mini Environment Tester (No Joystick)."
-parser = argparse.ArgumentParser(description=descr)
-parser.add_argument("-hf",
-                    "--HeightField",
-                    help="Use HeightField",
-                    action='store_true')
-parser.add_argument("-r",
-                    "--DebugRack",
-                    help="Put Spot on an Elevated Rack",
-                    action='store_true')
-parser.add_argument("-p",
-                    "--DebugPath",
-                    help="Draw Spot's Foot Path",
-                    action='store_true')
-parser.add_argument("-ay",
-                    "--AutoYaw",
-                    help="Automatically Adjust Spot's Yaw",
-                    action='store_true')
-parser.add_argument("-ar",
-                    "--AutoReset",
-                    help="Automatically Reset Environment When Spot Falls",
-                    action='store_true')
-parser.add_argument("-dr",
-                    "--DontRandomize",
-                    help="Do NOT Randomize State and Environment.",
-                    action='store_true')
-ARGS = parser.parse_args()
+STANCE = 0
+SWING = 1
 
 
-def main():
-    """ The main() function. """
+def TransToRp(T):
+    """
+    Converts a homogeneous transformation matrix into a rotation matrix
+    and position vector
 
-    print("STARTING SPOT TEST ENV")
-    seed = 0
-    max_timesteps = 4e6
+    :param T: A homogeneous transformation matrix
+    :return R: The corresponding rotation matrix,
+    :return p: The corresponding position vector.
 
-    # Find abs path to this file
-    my_path = os.path.abspath(os.path.dirname(__file__))
-    results_path = os.path.join(my_path, "../results")
-    models_path = os.path.join(my_path, "../models")
+    Example Input:
+        T = np.array([[1, 0,  0, 0],
+                      [0, 0, -1, 0],
+                      [0, 1,  0, 3],
+                      [0, 0,  0, 1]])
 
-    if not os.path.exists(results_path):
-        os.makedirs(results_path)
+    Output:
+        (np.array([[1, 0,  0],
+                   [0, 0, -1],
+                   [0, 1,  0]]),
+         np.array([0, 0, 3]))
+    """
+    T = np.array(T)
+    return T[0:3, 0:3], T[0:3, 3]
 
-    if not os.path.exists(models_path):
-        os.makedirs(models_path)
 
-    if ARGS.DebugRack:
-        on_rack = True
-    else:
-        on_rack = False
+class GaitState:
+    def __init__(self) -> None:
+        self.stepLength = 0.0
+        self.yawRate = 0
+        self.lateralFraction = 0
+        self.stepVelocity = 0.001
+        self.swingPeriod = 0.2
+        self.clearanceHeight = 0.045
+        self.penetrationDepth = 0.003
+        self.contacts = [False] * 4
 
-    if ARGS.DebugPath:
-        draw_foot_path = True
-    else:
-        draw_foot_path = False
+        self.targetStepLength = 0
 
-    if ARGS.HeightField:
-        height_field = True
-    else:
-        height_field = False
+    def updateStepLength(self, dt):
+        if self.stepLength < self.targetStepLength:
+            self.stepLength += self.targetStepLength * dt
 
-    if ARGS.DontRandomize:
-        env_randomizer = None
-    else:
-        env_randomizer = SpotEnvRandomizer()
 
-    env = spotBezierEnv(render=True,
-                        on_rack=on_rack,
-                        height_field=height_field,
-                        draw_foot_path=draw_foot_path,
-                        env_randomizer=env_randomizer)
+class BodyState:
+    def __init__(self) -> None:
+        self.position = np.array([0, 0, 0])
+        self.rotation = np.array([0, 0, 0])
+        self.worldFeetPositions = {}
 
-    # Set seeds
-    env.seed(seed)
-    np.random.seed(seed)
 
-    state_dim = env.observation_space.shape[0]
-    print("STATE DIM: {}".format(state_dim))
-    action_dim = env.action_space.shape[0]
-    print("ACTION DIM: {}".format(action_dim))
-    max_action = float(env.action_space.high[0])
+# class NewBezierGait:
+#     def __init__(self) -> None:
+#         self.dSref = [0.0, 0.0, 0.5, 0.5]
+#         self.dSref = dSref
+#         self.Prev_fxyz = [0.0, 0.0, 0.0, 0.0]
+#         self.NumControlPoints = 11
 
-    state = env.reset()
+#         self.time = 0.0
+#         # Touchdown Time
+#         self.touchDownTime = 0.0
+#         self.time_since_last_TD = 0.0
+#         self.StanceSwing = SWING
+#         self.SwRef = 0.0
+#         self.Stref = 0.0
+#         # Whether Reference Foot has Touched Down
+#         self.TD = False
 
-    g_u_i = GUI(env.spot.quadruped)
+#         # Stance Time
+#         self.Tswing = 0.2
 
-    spot = SpotModel()
-    T_bf0 = spot.WorldToFoot
-    T_bf = copy.deepcopy(T_bf0)
+#         self.ref_idx = 0
 
-    bzg = BezierGait(dt=env._time_step)
+#         # Store all leg phases
+#         self.Phases = self.dSref
 
-    bz_step = BezierStepper(dt=env._time_step, mode=0)
+#     def generate_trajectory(self, body_state: BodyState, gait_state: GaitState, dt):
+#         if gait_state.stepVelocity != 0:
+#             tStance = 2.0 * abs(gait_state.stepLength) / abs(gait_state.stepVelocity)
+#         else:
+#             tStance = 0.0
+#             gait_state.stepLength = 0.0
+#             self.TD = False
+#             self.time = 0.0
+#             self.time_since_last_TD = 0.0
 
-    action = env.action_space.sample()
+#         gait_state.yawRate *= dt
 
-    FL_phases = []
-    FR_phases = []
-    BL_phases = []
-    BR_phases = []
+#         if tStance < dt or tStance > 1.3 * gait_state.swingPeriod:
+#             tStance = max(0.0, min(tStance, 1.3 * gait_state.swingPeriod))
+#             gait_state.stepLength, gait_state.yawRate = 0.0, 0.0
+#             self.TD = False
+#             self.time = 0.0
+#             self.time_since_last_TD = 0.0
 
-    FL_Elbow = []
+#         if gait_state.contacts[0] and tStance > dt:
+#             self.TD = True
 
-    yaw = 0.0
+#         self.increment(dt, tStance + gait_state.swingPeriod)
 
-    print("STARTED SPOT TEST ENV")
-    t = 0
-    while t < (int(max_timesteps)):
+#         T_bf = copy.deepcopy(body_state.worldFeetPositions)
+#         ref_dS = {"FL": 0.0, "FR": 0.5, "BL": 0.5, "BR": 0.0}
+#         for i, (key, Tbf_in) in enumerate(body_state.worldFeetPositions.items()):
+#             self.ref_idx = i if key == "FL" else self.ref_idx
+#             self.dSref[i] = ref_dS[key]
+#             _, p_bf = TransToRp(Tbf_in)
+#             step_coord = (
+#                 self.get_foot_step(body_state, gait_state, i, key)
+#                 if tStance > 0
+#                 else np.array([0.0, 0.0, 0.0])
+#             )
+#             for j in range(3):
+#                 T_bf[key][j, 3] += step_coord[j]
+#         return T_bf
 
-        bz_step.ramp_up()
+#     def get_foot_step(self, body_state: BodyState, gait_state: GaitState):
+#         phase, stance_swing = self.get_phase(gait_state)
+#         self.phases[gait_state.index] = phase + 1.0 if stance_swing == SWING else phase
 
-        pos, orn, StepLength, LateralFraction, YawRate, StepVelocity, ClearanceHeight, PenetrationDepth = bz_step.StateMachine(
+#         if stance_swing == STANCE:
+#             return self.stance_step(phase, gait_state, body_state)
+#         return self.swing_step(phase, gait_state, body_state)
+
+
+class Gait:
+    def __init__(
+        self,
+        env: spotBezierEnv,
+        gui: GUI,
+        bodyState: BodyState,
+        gaitState: GaitState,
+        spotModel: SpotModel,
+        bezierGait: BezierGait,
+    ) -> None:
+        self.env = env
+        self.gui = gui
+        self.bodyState = bodyState
+        self.gaitState = gaitState
+        self.spot = spotModel
+        self.bezierGait = bezierGait
+
+        self.state = self.env.reset()
+        self.action = self.env.action_space.sample()
+        self.bodyState.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
+
+        self.dt = 0.01
+
+    def step(self):
+        self.gaitState.updateStepLength(self.dt)
+        self.gui.UserInput(self.bodyState, self.gaitState)
+        self.gaitState.contacts = self.state[-4:]
+        self.bodyState.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
+
+        self.bodyState.worldFeetPositions = self.bezierGait.GenerateTrajectory(
+            self.bodyState, self.gaitState, self.dt
         )
 
-        pos, orn, StepLength, LateralFraction, YawRate, StepVelocity, ClearanceHeight, PenetrationDepth, SwingPeriod = g_u_i.UserInput(
-        )
+        self.updateEnvironment()
 
-        # Update Swing Period
-        bzg.Tswing = SwingPeriod
-
-        yaw = env.return_yaw()
-
-        P_yaw = 5.0
-
-        if ARGS.AutoYaw:
-            YawRate += -yaw * P_yaw
-
-        # print("YAW RATE: {}".format(YawRate))
-
-        # TEMP
-        bz_step.StepLength = StepLength
-        bz_step.LateralFraction = LateralFraction
-        bz_step.YawRate = YawRate
-        bz_step.StepVelocity = StepVelocity
-
-        contacts = state[-4:]
-
-        FL_phases.append(env.spot.LegPhases[0])
-        FR_phases.append(env.spot.LegPhases[1])
-        BL_phases.append(env.spot.LegPhases[2])
-        BR_phases.append(env.spot.LegPhases[3])
-
-        # Get Desired Foot Poses
-        T_bf = bzg.GenerateTrajectory(StepLength, LateralFraction, YawRate,
-                                      StepVelocity, T_bf0, T_bf,
-                                      ClearanceHeight, PenetrationDepth,
-                                      contacts)
-        joint_angles = spot.IK(orn, pos, T_bf)
-
-        FL_Elbow.append(np.degrees(joint_angles[0][-1]))
-
-        # for i, (key, Tbf_in) in enumerate(T_bf.items()):
-        #     print("{}: \t Angle: {}".format(key, np.degrees(joint_angles[i])))
-        # print("-------------------------")
-
-        env.pass_joint_angles(joint_angles.reshape(-1))
-        # Get External Observations
-        env.spot.GetExternalObservations(bzg, bz_step)
-        # Step
-        state, reward, done, _ = env.step(action)
-        # print("IMU Roll: {}".format(state[0]))
-        # print("IMU Pitch: {}".format(state[1]))
-        # print("IMU GX: {}".format(state[2]))
-        # print("IMU GY: {}".format(state[3]))
-        # print("IMU GZ: {}".format(state[4]))
-        # print("IMU AX: {}".format(state[5]))
-        # print("IMU AY: {}".format(state[6]))
-        # print("IMU AZ: {}".format(state[7]))
-        # print("-------------------------")
+        self.state, _, done, _ = self.env.step(self.action)
         if done:
             print("DONE")
-            if ARGS.AutoReset:
-                env.reset()
-                # plt.plot()
-                # # plt.plot(FL_phases, label="FL")
-                # # plt.plot(FR_phases, label="FR")
-                # # plt.plot(BL_phases, label="BL")
-                # # plt.plot(BR_phases, label="BR")
-                # plt.plot(FL_Elbow, label="FL ELbow (Deg)")
-                # plt.xlabel("dt")
-                # plt.ylabel("value")
-                # plt.title("Leg Phases")
-                # plt.legend()
-                # plt.show()
+            return True
 
-        # time.sleep(1.0)
-
-        t += 1
-    env.close()
-    print(joint_angles)
+    def updateEnvironment(self):
+        joint_angles = self.spot.IK(
+            self.bodyState.rotation,
+            self.bodyState.position,
+            self.bodyState.worldFeetPositions,
+        )
+        self.env.pass_joint_angles(joint_angles.reshape(-1))
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    env = spotBezierEnv(
+        render=True,
+        on_rack=False,
+        height_field=False,
+        draw_foot_path=False,
+        env_randomizer=None,
+    )
+    gui = GUI(env.spot.quadruped)
+    bodyState = BodyState()
+    gaitState = GaitState()
+    spot = SpotModel()
+    bezierGait = BezierGait()
+
+    gait = Gait(env, gui, bodyState, gaitState, spot, bezierGait)
+
+    while True:
+        done = gait.step()
+        if done:
+            gait.env.close()
+            break
