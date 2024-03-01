@@ -136,7 +136,7 @@ class BezierGait():
             self.dSref[index] = 0.0
         return self.time_since_last_TD - self.dSref[index] * Tstride
 
-    def Increment(self, dt, Tstride):
+    def update_clock(self, dt):
         """Increments the Bezier gait generator's internal clock (self.time)
 
         :param dt: the time step
@@ -144,6 +144,7 @@ class BezierGait():
         :param Tstride: the total leg movement period (Tstance + Tswing)
         :return: the leg's time index
         """
+        Tstride = self.Tstance + self.Tswing
         self.CheckTouchDown()
         self.time_since_last_TD = self.time - self.TD_time
         if self.time_since_last_TD > Tstride:
@@ -437,9 +438,9 @@ class BezierGait():
 
     def GenerateTrajectory(self, bodyState, gaitState, dt):
         """Calculates the step coordinates for each foot"""
-        Tstance = 2.0 * abs(gaitState.stepLength) / abs(gaitState.stepVelocity)
+        self.Tstance = 2.0 * abs(gaitState.stepLength) / abs(gaitState.stepVelocity)
         if gaitState.stepVelocity == 0.0:
-            Tstance = 0.0
+            self.Tstance = 0.0
             gaitState.stepLength = 0.0
             self.touchDown = False
             self.time = 0.0
@@ -448,19 +449,19 @@ class BezierGait():
         gaitState.yawRate *= dt
 
         # Catch infeasible timesteps
-        if Tstance < dt:
-            Tstance = 0.0
+        if self.Tstance < dt:
+            self.Tstance = 0.0
             gaitState.stepLength = 0.0
             self.touchDown = False
             self.time = 0.0
             self.time_since_last_TD = 0.0
             gaitState.yawRate = 0.0
-        Tstance = min(Tstance, 1.3 * self.Tswing)
+        self.Tstance = min(self.Tstance, 1.3 * self.Tswing)
 
-        if gaitState.contacts[0] == 1 and Tstance > dt:
+        if gaitState.contacts[0] == 1 and self.Tstance > dt:
             self.touchDown = True
 
-        self.Increment(dt, Tstance + self.Tswing)
+        self.update_clock(dt)
 
         T_bf = copy.deepcopy(bodyState.worldFeetPositions)
         ref_dS = {"FL": 0.0, "FR": 0.5, "BL": 0.5, "BR": 0.0}
@@ -468,8 +469,8 @@ class BezierGait():
             self.ref_idx = i if key == "FL" else self.ref_idx
             self.dSref[i] = ref_dS[key]
             _, p_bf = TransToRp(Tbf_in)
-            if Tstance > 0.0:
-                step_coord = self.GetFootStep(gaitState, Tstance, p_bf, i)
+            if self.Tstance > 0.0:
+                step_coord = self.GetFootStep(gaitState, self.Tstance, p_bf, i)
             else:
                 step_coord = np.array([0.0, 0.0, 0.0])
             for j in range(3):
