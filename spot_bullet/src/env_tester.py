@@ -67,9 +67,7 @@ class Gait:
         self.gaitState.contacts = self.state[-4:]
         self.bodyState.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
 
-        self.bodyState.worldFeetPositions = self.bezierGait.GenerateTrajectory(
-            self.bodyState, self.gaitState, self.dt
-        )
+        self.bezierGait.GenerateTrajectory(self.bodyState, self.gaitState, self.dt)
 
         self.updateEnvironment()
 

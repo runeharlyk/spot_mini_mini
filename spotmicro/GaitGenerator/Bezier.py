@@ -463,16 +463,15 @@ class BezierGait():
 
         self.update_clock(dt)
 
-        T_bf = copy.deepcopy(bodyState.worldFeetPositions)
         ref_dS = {"FL": 0.0, "FR": 0.5, "BL": 0.5, "BR": 0.0}
         for i, (key, Tbf_in) in enumerate(bodyState.worldFeetPositions.items()):
             self.ref_idx = i if key == "FL" else self.ref_idx
             self.dSref[i] = ref_dS[key]
             _, p_bf = TransToRp(Tbf_in)
-            if self.Tstance > 0.0:
-                step_coord = self.GetFootStep(gaitState, p_bf, i)
-            else:
-                step_coord = np.array([0.0, 0.0, 0.0])
+            step_coord = (
+                self.GetFootStep(gaitState, p_bf, i)
+                if self.Tstance > 0.0
+                else np.array([0.0, 0.0, 0.0])
+            )
             for j in range(3):
-                T_bf[key][j, 3] += step_coord[j]
-        return T_bf
+                bodyState.worldFeetPositions[key][j, 3] += step_coord[j]
