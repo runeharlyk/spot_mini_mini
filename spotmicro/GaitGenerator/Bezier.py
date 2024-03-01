@@ -20,7 +20,7 @@ class BezierGait():
 
     def __init__(self, leg_phases=[0.0, 0.0, 0.5, 0.5], dt=0.01, t_swing=0.2):
         self.leg_phases = leg_phases
-        self.Prev_fxyz = [0.0, 0.0, 0.0, 0.0]
+        self.prev_foot_pos = np.zeros((4, 3))
 
         self.num_control_points = 11
 
@@ -33,8 +33,8 @@ class BezierGait():
         self.phase = Phase.SWING
 
         # Swing Phase value [0, 1] of Reference Foot
-        self.SwRef = 0.0
-        self.Stref = 0.0
+        self.sw_ref = 0.0
+        self.st_ref = 0.0
         # Whether Reference Foot has Touched Down
         self.touch_down = False
 
@@ -48,13 +48,13 @@ class BezierGait():
         self.phases = self.leg_phases
 
     def reset(self):
-        self.Prev_fxyz = [0.0, 0.0, 0.0, 0.0]
+        self.prev_foot_pos.fill(0)
         self.time = 0.0
         self.touch_down_time = 0.0
         self.last_touch_down_time = 0.0
         self.phase = Phase.SWING
-        self.SwRef = 0.0
-        self.Stref = 0.0
+        self.sw_ref = 0.0
+        self.st_ref = 0.0
         self.touch_down = False
 
     def get_phase(self, index):
@@ -63,67 +63,67 @@ class BezierGait():
         NOTE modification
         from original paper:
 
-        if ti < -Tswing:
-           ti += Tstride
+        if ti < -t_swing:
+           ti += t_stride
 
         This is to avoid a phase discontinuity if the user selects
-        a Step Length and Velocity combination that causes Tstance > Tswing.
+        a Step Length and Velocity combination that causes t_stance > t_swing.
 
         :param index: the leg's index, used to identify the required
                       phase lag
-        :param Tstance: the current user-specified stance period
-        :param Tswing: the swing period (constant, class member)
+        :param t_stance: the current user-specified stance period
+        :param t_swing: the swing period (constant, class member)
         :return: Leg Phase, and StanceSwing (bool) to indicate whether
                  leg is in stance or swing mode
         """
-        StanceSwing = Phase.STANCE
-        Sw_phase = 0.0
-        self.t_stride = self.t_stance + self.t_swing
-        ti = self.time_index(index, self.t_stride)
+        t_stride = self.t_stance + self.t_swing
+        time_index = self.time_index(index, t_stride)
 
-        # NOTE: PAPER WAS MISSING THIS LOGIC!!
-        if ti < -self.t_swing:
-            ti += self.t_stride
+        if time_index < -self.t_swing:
+            time_index += t_stride
 
-        # STANCE
-        if ti >= 0.0 and ti <= self.t_stance:
-            Stnphase = ti / float(self.t_stance)
-            if self.t_stance == 0.0:
-                Stnphase = 0.0
-            if index == self.ref_idx:
-                self.phase = StanceSwing
-            return Stnphase, StanceSwing
-        # SWING
-        elif ti >= -self.t_swing and ti < 0.0:
-            StanceSwing = Phase.SWING
-            Sw_phase = (ti + self.t_swing) / self.t_swing
-        elif ti > self.t_stance and ti <= self.t_stride:
-            StanceSwing = Phase.SWING
-            Sw_phase = (ti - self.t_stance) / self.t_swing
-        # Touchdown at End of Swing
-        Sw_phase = min(Sw_phase, 1.0)
+        is_stance_phase = time_index >= 0.0 and time_index <= self.t_stance
+        if is_stance_phase:
+            return self.get_stance_phase(time_index, index)
+
+        return self.get_swing_phase(time_index, index)
+
+    def get_stance_phase(self, time_index, index):
+        leg_phase = time_index / float(self.t_stance)
+        if self.t_stance == 0.0:
+            leg_phase = 0.0
         if index == self.ref_idx:
-            self.phase = StanceSwing
-            self.SwRef = Sw_phase
-            if self.SwRef >= 0.999:
-                self.touch_down = True
-            # else:
-            #     self.TD = False
-        return Sw_phase, StanceSwing
+            self.phase = Phase.STANCE
+        return leg_phase, Phase.STANCE
 
-    def time_index(self, index, Tstride):
+    def get_swing_phase(self, time_index, index):
+        leg_phase = 0.0
+        if time_index >= -self.t_swing and time_index < 0.0:
+            leg_phase = min((time_index + self.t_swing) / self.t_swing, 1.0)
+        elif time_index > self.t_stance and time_index <= self.t_stride:
+            leg_phase = min((time_index - self.t_stance) / self.t_swing, 1.0)
+        # Touchdown at End of Swing
+        leg_phase = min(leg_phase, 1.0)
+        if index == self.ref_idx:
+            self.phase = Phase.SWING
+            self.sw_ref = leg_phase
+            if self.sw_ref >= 0.999:
+                self.touch_down = True
+        return leg_phase, Phase.SWING
+
+    def time_index(self, index, t_stride):
         """Retrieves the time index for the individual leg
 
         :param index: the leg's index, used to identify the required
                       phase lag
-        :param Tstride: the total leg movement period (Tstance + Tswing)
+        :param t_stride: the total leg movement period (t_stance + t_swing)
         :return: the leg's time index
         """
         # NOTE: for some reason python's having numerical issues w this
         # setting to 0 for ref leg by force
         if index == self.ref_idx:
             self.leg_phases[index] = 0.0
-        return self.last_touch_down_time - self.leg_phases[index] * Tstride
+        return self.last_touch_down_time - self.leg_phases[index] * t_stride
 
     def update_clock(self, dt):
         """Increments the Bezier gait generator's internal clock (self.time)
@@ -145,17 +145,17 @@ class BezierGait():
             self.time = 0.0
             self.last_touch_down_time = 0.0
             self.touch_down_time = 0.0
-            self.SwRef = 0.0
+            self.sw_ref = 0.0
 
     def _check_touch_down(self):
         """Checks whether a reference leg touchdown
-           has occured, and whether this warrants
-           resetting the touchdown time
+        has occurred, and whether this warrants
+        resetting the touchdown time
         """
-        if self.SwRef >= 0.9 and self.touch_down:
+        if self.sw_ref >= 0.9 and self.touch_down:
             self.touch_down_time = self.time
             self.touch_down = False
-            self.SwRef = 0.0
+            self.sw_ref = 0.0
 
     def _bern_stein_poly(self, t, k, point):
         """Calculate the point on the Berinstein Polynomial
@@ -199,20 +199,22 @@ class BezierGait():
         # Bezier Curve Points (12 pts)
         # NOTE: L is HALF of STEP LENGTH
         # Forward Component
-        STEP = np.array([
-            -L,  # Ctrl Point 0, half of stride len
-            -L * 1.4,  # Ctrl Point 1 diff btwn 1 and 0 = x Lift vel
-            -L * 1.5,  # Ctrl Pts 2, 3, 4 are overlapped for
-            -L * 1.5,  # Direction change after
-            -L * 1.5,  # Follow Through
-            0.0,  # Change acceleration during Protraction
-            0.0,  # So we include three
-            0.0,  # Overlapped Ctrl Pts: 5, 6, 7
-            L * 1.5,  # Changing direction for swing-leg retraction
-            L * 1.5,  # requires double overlapped Ctrl Pts: 8, 9
-            L * 1.4,  # Swing Leg Retraction Velocity = Ctrl 11 - 10
-            L
-        ])
+        STEP = np.array(
+            [
+                -L,  # Ctrl Point 0, half of stride len
+                -L * 1.4,  # Ctrl Point 1 diff between 1 and 0 = x Lift vel
+                -L * 1.5,  # Ctrl Pts 2, 3, 4 are overlapped for
+                -L * 1.5,  # Direction change after
+                -L * 1.5,  # Follow Through
+                0.0,  # Change acceleration during Protraction
+                0.0,  # So we include three
+                0.0,  # Overlapped Ctrl Pts: 5, 6, 7
+                L * 1.5,  # Changing direction for swing-leg retraction
+                L * 1.5,  # requires double overlapped Ctrl Pts: 8, 9
+                L * 1.4,  # Swing Leg Retraction Velocity = Ctrl 11 - 10
+                L,
+            ]
+        )
         # Account for lateral movements by multiplying with polar coord.
         # lateral_fraction switches leg movements from X over to Y+ or Y-
         # As it tends away from zero
@@ -224,20 +226,22 @@ class BezierGait():
         Y = STEP * np.sin(lateral_fraction)
 
         # Vertical Component
-        Z = np.array([
-            0.0,  # Double Overlapped Ctrl Pts for zero Lift
-            0.0,  # Veloicty wrt hip (Pts 0 and 1)
-            clearance_height * 0.9,  # Triple overlapped control for change in
-            clearance_height * 0.9,  # Force direction during transition from
-            clearance_height * 0.9,  # follow-through to protraction (2, 3, 4)
-            clearance_height * 0.9,  # Double Overlapped Ctrl Pts for Traj
-            clearance_height * 0.9,  # Dirctn Change during Protraction (5, 6)
-            clearance_height * 1.1,  # Maximum Clearance at mid Traj, Pt 7
-            clearance_height * 1.1,  # Smooth Transition from Protraction
-            clearance_height * 1.1,  # To Retraction, Two Ctrl Pts (8, 9)
-            0.0,  # Double Overlap Ctrl Pts for 0 Touchdown
-            0.0,  # Veloicty wrt hip (Pts 10 and 11)
-        ])
+        Z = np.array(
+            [
+                0.0,  # Double Overlapped Ctrl Pts for zero Lift
+                0.0,  # Velocity wrt hip (Pts 0 and 1)
+                clearance_height * 0.9,  # Triple overlapped control for change in
+                clearance_height * 0.9,  # Force direction during transition from
+                clearance_height * 0.9,  # follow-through to protraction (2, 3, 4)
+                clearance_height * 0.9,  # Double Overlapped Ctrl Pts for Traj
+                clearance_height * 0.9,  # Direct Change during Protraction (5, 6)
+                clearance_height * 1.1,  # Maximum Clearance at mid Traj, Pt 7
+                clearance_height * 1.1,  # Smooth Transition from Protraction
+                clearance_height * 1.1,  # To Retraction, Two Ctrl Pts (8, 9)
+                0.0,  # Double Overlap Ctrl Pts for 0 Touchdown
+                0.0,  # Velocity wrt hip (Pts 10 and 11)
+            ]
+        )
 
         stepX = 0.
         stepY = 0.
@@ -288,7 +292,7 @@ class BezierGait():
         DefaultBodyToFoot_Direction = np.arctan2(T_bf[1], T_bf[0])
 
         # Previous leg coordinates relative to default coordinates
-        g_xyz = self.Prev_fxyz[index] - np.array([T_bf[0], T_bf[1], T_bf[2]])
+        g_xyz = self.prev_foot_pos[index] - np.array([T_bf[0], T_bf[1], T_bf[2]])
 
         # Modulate Magnitude to keep tracing circle
         g_mag = np.sqrt((g_xyz[0])**2 + (g_xyz[1])**2)
@@ -338,7 +342,7 @@ class BezierGait():
             Z_delta_lin + Z_delta_rot
         ])
 
-        self.Prev_fxyz[index] = coord
+        self.prev_foot_pos[index] = coord
 
         return coord
 
@@ -376,7 +380,7 @@ class BezierGait():
             Z_delta_lin + Z_delta_rot
         ])
 
-        self.Prev_fxyz[index] = coord
+        self.prev_foot_pos[index] = coord
 
         return coord
 
@@ -389,17 +393,17 @@ class BezierGait():
 
         :returns: Foot Coordinates relative to unmodified body
         """
-        phase, StanceSwing = self.get_phase(index)
-        stored_phase = phase
-        if StanceSwing == Phase.SWING:
+        leg_phase, foot_phase = self.get_phase(index)
+        stored_phase = leg_phase
+        if foot_phase == Phase.SWING:
             stored_phase += 1.0
 
         # Just for keeping track
         self.phases[index] = stored_phase
-        if StanceSwing == Phase.STANCE:
-            return self.stance_step(phase, gaitState, body_foot, index)
-        elif StanceSwing == Phase.SWING:
-            return self.swing_step(phase, gaitState, body_foot, index)
+        if foot_phase == Phase.STANCE:
+            return self.stance_step(leg_phase, gaitState, body_foot, index)
+        elif foot_phase == Phase.SWING:
+            return self.swing_step(leg_phase, gaitState, body_foot, index)
 
     def generate_trajectory(self, bodyState, gaitState, dt):
         """Calculates the step coordinates for each foot"""
@@ -413,7 +417,7 @@ class BezierGait():
             self.time = 0.0
             self.last_touch_down_time = 0.0
 
-        # Catch infeasible timesteps
+        # Catch infeasible timestep
         if self.t_stance < dt:
             self.t_stance = 0.0
             gaitState.step_length = 0.0
