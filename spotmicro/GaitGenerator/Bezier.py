@@ -37,24 +37,21 @@ def TransToRp(T):
 
 
 class BezierGait():
-    def __init__(self, dSref=[0.0, 0.0, 0.5, 0.5], dt=0.01, Tswing=0.2):
-        # Phase Lag Per Leg: FL, FR, BL, BR
-        # Reference Leg is FL, always 0
-        self.dSref = dSref
-        self.Prev_fxyz = [0.0, 0.0, 0.0, 0.0]
-        # Number of control points is n + 1 = 11 + 1 = 12
-        self.NumControlPoints = 11
-        # Timestep
-        self.dt = dt
 
-        # Total Elapsed Time
+    def __init__(self, leg_phases=[0.0, 0.0, 0.5, 0.5], dt=0.01, t_swing=0.2):
+        self.leg_phases = leg_phases
+        self.Prev_fxyz = [0.0, 0.0, 0.0, 0.0]
+
+        self.num_control_points = 11
+
+        self.dt = dt
         self.time = 0.0
-        # Touchdown Time
-        self.TD_time = 0.0
-        # Time Since Last Touchdown
-        self.time_since_last_TD = 0.0
+        self.touch_down_time = 0.0
+        self.last_touch_down_time = 0.0
+
         # Trajectory Mode
-        self.StanceSwing = Phase.SWING
+        self.phase = Phase.SWING
+
         # Swing Phase value [0, 1] of Reference Foot
         self.SwRef = 0.0
         self.Stref = 0.0
@@ -62,13 +59,13 @@ class BezierGait():
         self.touch_down = False
 
         # Stance Time
-        self.Tswing = Tswing
+        self.t_swing = t_swing
 
         # Reference Leg
         self.ref_idx = 0
 
         # Store all leg phases
-        self.Phases = self.dSref
+        self.phases = self.leg_phases
 
     def reset(self):
         """Resets the parameters of the Bezier Gait Generator
@@ -78,11 +75,11 @@ class BezierGait():
         # Total Elapsed Time
         self.time = 0.0
         # Touchdown Time
-        self.TD_time = 0.0
+        self.touch_down_time = 0.0
         # Time Since Last Touchdown
-        self.time_since_last_TD = 0.0
+        self.last_touch_down_time = 0.0
         # Trajectory Mode
-        self.StanceSwing = Phase.SWING
+        self.phase = Phase.SWING
         # Swing Phase value [0, 1] of Reference Foot
         self.SwRef = 0.0
         self.Stref = 0.0
@@ -110,11 +107,11 @@ class BezierGait():
         """
         StanceSwing = Phase.STANCE
         Sw_phase = 0.0
-        Tstride = self.Tstance + self.Tswing
+        Tstride = self.Tstance + self.t_swing
         ti = self.Get_ti(index, Tstride)
 
         # NOTE: PAPER WAS MISSING THIS LOGIC!!
-        if ti < -self.Tswing:
+        if ti < -self.t_swing:
             ti += Tstride
 
         # STANCE
@@ -126,21 +123,21 @@ class BezierGait():
                 Stnphase = ti / float(self.Tstance)
             if index == self.ref_idx:
                 # print("STANCE REF: {}".format(Stnphase))
-                self.StanceSwing = StanceSwing
+                self.phase = StanceSwing
             return Stnphase, StanceSwing
         # SWING
-        elif ti >= -self.Tswing and ti < 0.0:
+        elif ti >= -self.t_swing and ti < 0.0:
             StanceSwing = Phase.SWING
-            Sw_phase = (ti + self.Tswing) / self.Tswing
+            Sw_phase = (ti + self.t_swing) / self.t_swing
         elif ti > self.Tstance and ti <= Tstride:
             StanceSwing = Phase.SWING
-            Sw_phase = (ti - self.Tstance) / self.Tswing
+            Sw_phase = (ti - self.Tstance) / self.t_swing
         # Touchdown at End of Swing
         if Sw_phase >= 1.0:
             Sw_phase = 1.0
         if index == self.ref_idx:
             # print("SWING REF: {}".format(Sw_phase))
-            self.StanceSwing = StanceSwing
+            self.phase = StanceSwing
             self.SwRef = Sw_phase
             # REF Touchdown at End of Swing
             if self.SwRef >= 0.999:
@@ -160,8 +157,8 @@ class BezierGait():
         # NOTE: for some reason python's having numerical issues w this
         # setting to 0 for ref leg by force
         if index == self.ref_idx:
-            self.dSref[index] = 0.0
-        return self.time_since_last_TD - self.dSref[index] * Tstride
+            self.leg_phases[index] = 0.0
+        return self.last_touch_down_time - self.leg_phases[index] * Tstride
 
     def update_clock(self, dt):
         """Increments the Bezier gait generator's internal clock (self.time)
@@ -171,13 +168,13 @@ class BezierGait():
         :param Tstride: the total leg movement period (Tstance + Tswing)
         :return: the leg's time index
         """
-        Tstride = self.Tstance + self.Tswing
+        Tstride = self.Tstance + self.t_swing
         self.CheckTouchDown()
-        self.time_since_last_TD = self.time - self.TD_time
-        if self.time_since_last_TD > Tstride:
-            self.time_since_last_TD = Tstride
-        elif self.time_since_last_TD < 0.0:
-            self.time_since_last_TD = 0.0
+        self.last_touch_down_time = self.time - self.touch_down_time
+        if self.last_touch_down_time > Tstride:
+            self.last_touch_down_time = Tstride
+        elif self.last_touch_down_time < 0.0:
+            self.last_touch_down_time = 0.0
         # print("T STRIDE: {}".format(Tstride))
         # Increment Time at the end in case TD just happened
         # So that we get time_since_last_TD = 0.0
@@ -185,10 +182,10 @@ class BezierGait():
 
         # If Tstride = Tswing, Tstance = 0
         # RESET ALL
-        if Tstride < self.Tswing + dt:
+        if Tstride < self.t_swing + dt:
             self.time = 0.0
-            self.time_since_last_TD = 0.0
-            self.TD_time = 0.0
+            self.last_touch_down_time = 0.0
+            self.touch_down_time = 0.0
             self.SwRef = 0.0
 
     def CheckTouchDown(self):
@@ -197,7 +194,7 @@ class BezierGait():
            resetting the touchdown time
         """
         if self.SwRef >= 0.9 and self.touch_down:
-            self.TD_time = self.time
+            self.touch_down_time = self.time
             self.touch_down = False
             self.SwRef = 0.0
 
@@ -211,8 +208,12 @@ class BezierGait():
            :param point: point value
            :return: Value through Bezier Curve
         """
-        return point * self.Binomial(k) * np.power(t, k) * np.power(
-            1 - t, self.NumControlPoints - k)
+        return (
+            point
+            * self.Binomial(k)
+            * np.power(t, k)
+            * np.power(1 - t, self.num_control_points - k)
+        )
 
     def Binomial(self, k):
         """Solves the binomial theorem given a Bezier point number
@@ -221,9 +222,9 @@ class BezierGait():
            :param k: Bezier point number
            :returns: Binomial solution
         """
-        return np.math.factorial(self.NumControlPoints) / (
-            np.math.factorial(k) *
-            np.math.factorial(self.NumControlPoints - k))
+        return np.math.factorial(self.num_control_points) / (
+            np.math.factorial(k) * np.math.factorial(self.num_control_points - k)
+        )
 
     def BezierSwing(self, phase, L, lateral_fraction, clearance_height=0.04):
         """Calculates the step coordinates for the Bezier (swing) period
@@ -439,7 +440,7 @@ class BezierGait():
             stored_phase += 1.0
 
         # Just for keeping track
-        self.Phases[index] = stored_phase
+        self.phases[index] = stored_phase
         if StanceSwing == Phase.STANCE:
             return self.StanceStep(phase, gaitState, body_foot, index)
         elif StanceSwing == Phase.SWING:
@@ -455,7 +456,7 @@ class BezierGait():
             gaitState.step_length = 0.0
             self.touch_down = False
             self.time = 0.0
-            self.time_since_last_TD = 0.0
+            self.last_touch_down_time = 0.0
 
         # Catch infeasible timesteps
         if self.Tstance < dt:
@@ -463,9 +464,9 @@ class BezierGait():
             gaitState.step_length = 0.0
             self.touch_down = False
             self.time = 0.0
-            self.time_since_last_TD = 0.0
+            self.last_touch_down_time = 0.0
             gaitState.yaw_rate = 0.0
-        self.Tstance = min(self.Tstance, 1.3 * self.Tswing)
+        self.Tstance = min(self.Tstance, 1.3 * self.t_swing)
 
         if gaitState.contacts[0] == 1 and self.Tstance > dt:
             self.touch_down = True
@@ -475,7 +476,7 @@ class BezierGait():
         ref_dS = {"FL": 0.0, "FR": 0.5, "BL": 0.5, "BR": 0.0}
         for i, (key, Tbf_in) in enumerate(bodyState.worldFeetPositions.items()):
             self.ref_idx = i if key == "FL" else self.ref_idx
-            self.dSref[i] = ref_dS[key]
+            self.leg_phases[i] = ref_dS[key]
             _, leg_feet_positions = TransToRp(Tbf_in)
             step_coord = (
                 self.foot_step(gaitState, leg_feet_positions, i)
