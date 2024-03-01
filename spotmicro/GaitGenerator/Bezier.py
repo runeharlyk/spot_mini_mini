@@ -1,12 +1,39 @@
+from enum import Enum
 import numpy as np
-from spotmicro.Kinematics.LieAlgebra import TransToRp
-import copy
 
-STANCE = 0
-SWING = 1
+
+class Phase(Enum):
+    STANCE = 0
+    SWING = 1
+
 
 # Bezier Curves from: https://dspace.mit.edu/handle/1721.1/98270
 # Rotation Logic from: http://www.inase.org/library/2014/santorini/bypaper/ROBCIRC/ROBCIRC-54.pdf
+
+
+def TransToRp(T):
+    """
+    Converts a homogeneous transformation matrix into a rotation matrix
+    and position vector
+
+    :param T: A homogeneous transformation matrix
+    :return R: The corresponding rotation matrix,
+    :return p: The corresponding position vector.
+
+    Example Input:
+        T = np.array([[1, 0,  0, 0],
+                      [0, 0, -1, 0],
+                      [0, 1,  0, 3],
+                      [0, 0,  0, 1]])
+
+    Output:
+        (np.array([[1, 0,  0],
+                   [0, 0, -1],
+                   [0, 1,  0]]),
+         np.array([0, 0, 3]))
+    """
+    T = np.array(T)
+    return T[0:3, 0:3], T[0:3, 3]
 
 
 class BezierGait():
@@ -27,12 +54,12 @@ class BezierGait():
         # Time Since Last Touchdown
         self.time_since_last_TD = 0.0
         # Trajectory Mode
-        self.StanceSwing = SWING
+        self.StanceSwing = Phase.SWING
         # Swing Phase value [0, 1] of Reference Foot
         self.SwRef = 0.0
         self.Stref = 0.0
         # Whether Reference Foot has Touched Down
-        self.touchDown = False
+        self.touch_down = False
 
         # Stance Time
         self.Tswing = Tswing
@@ -55,14 +82,14 @@ class BezierGait():
         # Time Since Last Touchdown
         self.time_since_last_TD = 0.0
         # Trajectory Mode
-        self.StanceSwing = SWING
+        self.StanceSwing = Phase.SWING
         # Swing Phase value [0, 1] of Reference Foot
         self.SwRef = 0.0
         self.Stref = 0.0
         # Whether Reference Foot has Touched Down
-        self.touchDown = False
+        self.touch_down = False
 
-    def GetPhase(self, index):
+    def get_phase(self, index):
         """Retrieves the phase of an individual leg.
 
         NOTE modification
@@ -81,7 +108,7 @@ class BezierGait():
         :return: Leg Phase, and StanceSwing (bool) to indicate whether
                  leg is in stance or swing mode
         """
-        StanceSwing = STANCE
+        StanceSwing = Phase.STANCE
         Sw_phase = 0.0
         Tstride = self.Tstance + self.Tswing
         ti = self.Get_ti(index, Tstride)
@@ -92,7 +119,7 @@ class BezierGait():
 
         # STANCE
         if ti >= 0.0 and ti <= self.Tstance:
-            StanceSwing = STANCE
+            StanceSwing = Phase.STANCE
             if self.Tstance == 0.0:
                 Stnphase = 0.0
             else:
@@ -103,10 +130,10 @@ class BezierGait():
             return Stnphase, StanceSwing
         # SWING
         elif ti >= -self.Tswing and ti < 0.0:
-            StanceSwing = SWING
+            StanceSwing = Phase.SWING
             Sw_phase = (ti + self.Tswing) / self.Tswing
         elif ti > self.Tstance and ti <= Tstride:
-            StanceSwing = SWING
+            StanceSwing = Phase.SWING
             Sw_phase = (ti - self.Tstance) / self.Tswing
         # Touchdown at End of Swing
         if Sw_phase >= 1.0:
@@ -117,7 +144,7 @@ class BezierGait():
             self.SwRef = Sw_phase
             # REF Touchdown at End of Swing
             if self.SwRef >= 0.999:
-                self.touchDown = True
+                self.touch_down = True
             # else:
             #     self.TD = False
         return Sw_phase, StanceSwing
@@ -169,9 +196,9 @@ class BezierGait():
            has occured, and whether this warrants
            resetting the touchdown time
         """
-        if self.SwRef >= 0.9 and self.touchDown:
+        if self.SwRef >= 0.9 and self.touch_down:
             self.TD_time = self.time
-            self.touchDown = False
+            self.touch_down = False
             self.SwRef = 0.0
 
     def BernSteinPoly(self, t, k, point):
@@ -267,7 +294,7 @@ class BezierGait():
 
         return stepX, stepY, stepZ
 
-    def SineStance(self, phase, L, lateral_fraction, penetration_depth=0.00):
+    def sine_stance(self, phase, L, lateral_fraction, penetration_depth=0.00):
         """Calculates the step coordinates for the Sinusoidal stance period
 
         :param phase: current trajectory phase
@@ -289,7 +316,7 @@ class BezierGait():
 
         return stepX, stepY, stepZ
 
-    def YawCircle(self, T_bf, index):
+    def yaw_circle(self, T_bf, index):
         """ Calculates the required rotation of the trajectory plane
             for yaw motion
 
@@ -336,7 +363,7 @@ class BezierGait():
         """
 
         # Yaw foot angle for tangent-to-circle motion
-        phi_arc = self.YawCircle(T_bf, index)
+        phi_arc = self.yaw_circle(T_bf, index)
 
         # Get Foot Coordinates for Forward Motion
         X_delta_lin, Y_delta_lin, Z_delta_lin = self.BezierSwing(
@@ -374,17 +401,17 @@ class BezierGait():
         """
 
         # Yaw foot angle for tangent-to-circle motion
-        phi_arc = self.YawCircle(T_bf, index)
+        phi_arc = self.yaw_circle(T_bf, index)
 
         # Get Foot Coordinates for Forward Motion
-        X_delta_lin, Y_delta_lin, Z_delta_lin = self.SineStance(
+        X_delta_lin, Y_delta_lin, Z_delta_lin = self.sine_stance(
             phase,
             gaitState.step_length,
             gaitState.lateral_fraction,
             gaitState.penetration_depth,
         )
 
-        X_delta_rot, Y_delta_rot, Z_delta_rot = self.SineStance(
+        X_delta_rot, Y_delta_rot, Z_delta_rot = self.sine_stance(
             phase, gaitState.yaw_rate, phi_arc, gaitState.penetration_depth
         )
 
@@ -397,7 +424,7 @@ class BezierGait():
 
         return coord
 
-    def GetFootStep(self, gaitState, T_bf, index):
+    def foot_step(self, gaitState, body_foot, index):
         """Calculates the step coordinates in either the Bezier or
         Sine portion of the trajectory depending on the retrieved phase
 
@@ -406,17 +433,17 @@ class BezierGait():
 
         :returns: Foot Coordinates relative to unmodified body
         """
-        phase, StanceSwing = self.GetPhase(index)
+        phase, StanceSwing = self.get_phase(index)
         stored_phase = phase
-        if StanceSwing == SWING:
+        if StanceSwing == Phase.SWING:
             stored_phase += 1.0
 
         # Just for keeping track
         self.Phases[index] = stored_phase
-        if StanceSwing == STANCE:
-            return self.StanceStep(phase, gaitState, T_bf, index)
-        elif StanceSwing == SWING:
-            return self.SwingStep(phase, gaitState, T_bf, index)
+        if StanceSwing == Phase.STANCE:
+            return self.StanceStep(phase, gaitState, body_foot, index)
+        elif StanceSwing == Phase.SWING:
+            return self.SwingStep(phase, gaitState, body_foot, index)
 
     def generate_trajectory(self, bodyState, gaitState, dt):
         """Calculates the step coordinates for each foot"""
@@ -426,7 +453,7 @@ class BezierGait():
         if gaitState.step_velocity == 0.0:
             self.Tstance = 0.0
             gaitState.step_length = 0.0
-            self.touchDown = False
+            self.touch_down = False
             self.time = 0.0
             self.time_since_last_TD = 0.0
 
@@ -434,14 +461,14 @@ class BezierGait():
         if self.Tstance < dt:
             self.Tstance = 0.0
             gaitState.step_length = 0.0
-            self.touchDown = False
+            self.touch_down = False
             self.time = 0.0
             self.time_since_last_TD = 0.0
             gaitState.yaw_rate = 0.0
         self.Tstance = min(self.Tstance, 1.3 * self.Tswing)
 
         if gaitState.contacts[0] == 1 and self.Tstance > dt:
-            self.touchDown = True
+            self.touch_down = True
 
         self.update_clock(dt)
 
@@ -451,7 +478,7 @@ class BezierGait():
             self.dSref[i] = ref_dS[key]
             _, leg_feet_positions = TransToRp(Tbf_in)
             step_coord = (
-                self.GetFootStep(gaitState, leg_feet_positions, i)
+                self.foot_step(gaitState, leg_feet_positions, i)
                 if self.Tstance > 0.0
                 else np.array([0.0, 0.0, 0.0])
             )
