@@ -62,7 +62,7 @@ class BezierGait():
         # Whether Reference Foot has Touched Down
         self.touchDown = False
 
-    def GetPhase(self, index, Tstance, Tswing):
+    def GetPhase(self, index):
         """Retrieves the phase of an individual leg.
 
         NOTE modification
@@ -83,31 +83,31 @@ class BezierGait():
         """
         StanceSwing = STANCE
         Sw_phase = 0.0
-        Tstride = Tstance + Tswing
+        Tstride = self.Tstance + self.Tswing
         ti = self.Get_ti(index, Tstride)
 
         # NOTE: PAPER WAS MISSING THIS LOGIC!!
-        if ti < -Tswing:
+        if ti < -self.Tswing:
             ti += Tstride
 
         # STANCE
-        if ti >= 0.0 and ti <= Tstance:
+        if ti >= 0.0 and ti <= self.Tstance:
             StanceSwing = STANCE
-            if Tstance == 0.0:
+            if self.Tstance == 0.0:
                 Stnphase = 0.0
             else:
-                Stnphase = ti / float(Tstance)
+                Stnphase = ti / float(self.Tstance)
             if index == self.ref_idx:
                 # print("STANCE REF: {}".format(Stnphase))
                 self.StanceSwing = StanceSwing
             return Stnphase, StanceSwing
         # SWING
-        elif ti >= -Tswing and ti < 0.0:
+        elif ti >= -self.Tswing and ti < 0.0:
             StanceSwing = SWING
-            Sw_phase = (ti + Tswing) / Tswing
-        elif ti > Tstance and ti <= Tstride:
+            Sw_phase = (ti + self.Tswing) / self.Tswing
+        elif ti > self.Tstance and ti <= Tstride:
             StanceSwing = SWING
-            Sw_phase = (ti - Tstance) / Tswing
+            Sw_phase = (ti - self.Tstance) / self.Tswing
         # Touchdown at End of Swing
         if Sw_phase >= 1.0:
             Sw_phase = 1.0
@@ -406,7 +406,7 @@ class BezierGait():
 
         return coord
 
-    def GetFootStep(self, gaitState, Tstance, T_bf, index):
+    def GetFootStep(self, gaitState, T_bf, index):
         """Calculates the step coordinates in either the Bezier or
            Sine portion of the trajectory depending on the retrieved phase
 
@@ -423,7 +423,7 @@ class BezierGait():
 
            :returns: Foot Coordinates relative to unmodified body
         """
-        phase, StanceSwing = self.GetPhase(index, Tstance, self.Tswing)
+        phase, StanceSwing = self.GetPhase(index)
         if StanceSwing == SWING:
             stored_phase = phase + 1.0
         else:
@@ -438,6 +438,8 @@ class BezierGait():
 
     def GenerateTrajectory(self, bodyState, gaitState, dt):
         """Calculates the step coordinates for each foot"""
+        gaitState.yawRate *= dt
+
         self.Tstance = 2.0 * abs(gaitState.stepLength) / abs(gaitState.stepVelocity)
         if gaitState.stepVelocity == 0.0:
             self.Tstance = 0.0
@@ -445,8 +447,6 @@ class BezierGait():
             self.touchDown = False
             self.time = 0.0
             self.time_since_last_TD = 0.0
-
-        gaitState.yawRate *= dt
 
         # Catch infeasible timesteps
         if self.Tstance < dt:
@@ -470,7 +470,7 @@ class BezierGait():
             self.dSref[i] = ref_dS[key]
             _, p_bf = TransToRp(Tbf_in)
             if self.Tstance > 0.0:
-                step_coord = self.GetFootStep(gaitState, self.Tstance, p_bf, i)
+                step_coord = self.GetFootStep(gaitState, p_bf, i)
             else:
                 step_coord = np.array([0.0, 0.0, 0.0])
             for j in range(3):
