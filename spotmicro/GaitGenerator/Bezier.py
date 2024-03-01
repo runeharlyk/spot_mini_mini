@@ -319,12 +319,9 @@ class BezierGait():
         else:
             phi_arc = np.pi / 2.0 - DefaultBodyToFoot_Direction + th_mod
 
-        # print("INDEX {}: \t Angle: {}".format(
-        #     index, np.degrees(DefaultBodyToFoot_Direction)))
-
         return phi_arc
 
-    def SwingStep(self, phase, gaitState, T_bf, key, index):
+    def SwingStep(self, phase, gaitState, T_bf, index):
         """Calculates the step coordinates for the Bezier (swing) period
            using a combination of forward and rotational step coordinates
            initially decomposed from user input of
@@ -366,7 +363,7 @@ class BezierGait():
 
         return coord
 
-    def StanceStep(self, phase, gaitState, T_bf, key, index):
+    def StanceStep(self, phase, gaitState, T_bf, index):
         """Calculates the step coordinates for the Sine (stance) period
            using a combination of forward and rotational step coordinates
            initially decomposed from user input of
@@ -408,7 +405,7 @@ class BezierGait():
 
         return coord
 
-    def GetFootStep(self, gaitState, Tstance, T_bf, index, key):
+    def GetFootStep(self, gaitState, Tstance, T_bf, index):
         """Calculates the step coordinates in either the Bezier or
            Sine portion of the trajectory depending on the retrieved phase
 
@@ -434,15 +431,14 @@ class BezierGait():
         self.Phases[index] = stored_phase
         # print("LEG: {} \t PHASE: {}".format(index, stored_phase))
         if StanceSwing == STANCE:
-            return self.StanceStep(phase, gaitState, T_bf, key, index)
+            return self.StanceStep(phase, gaitState, T_bf, index)
         elif StanceSwing == SWING:
-            return self.SwingStep(phase, gaitState, T_bf, key, index)
+            return self.SwingStep(phase, gaitState, T_bf, index)
 
     def GenerateTrajectory(self, bodyState, gaitState, dt):
         """Calculates the step coordinates for each foot"""
-        if gaitState.stepVelocity != 0.0:
-            Tstance = 2.0 * abs(gaitState.stepLength) / abs(gaitState.stepVelocity)
-        else:
+        Tstance = 2.0 * abs(gaitState.stepLength) / abs(gaitState.stepVelocity)
+        if gaitState.stepVelocity == 0.0:
             Tstance = 0.0
             gaitState.stepLength = 0.0
             self.touchDown = False
@@ -459,9 +455,7 @@ class BezierGait():
             self.time = 0.0
             self.time_since_last_TD = 0.0
             gaitState.yawRate = 0.0
-        # NOTE: MUCH MORE STABLE WITH THIS
-        elif Tstance > 1.3 * self.Tswing:
-            Tstance = 1.3 * self.Tswing
+        Tstance = min(Tstance, 1.3 * self.Tswing)
 
         if gaitState.contacts[0] == 1 and Tstance > dt:
             self.touchDown = True
@@ -475,13 +469,7 @@ class BezierGait():
             self.dSref[i] = ref_dS[key]
             _, p_bf = TransToRp(Tbf_in)
             if Tstance > 0.0:
-                step_coord = self.GetFootStep(
-                    gaitState,
-                    Tstance,
-                    p_bf,
-                    i,
-                    key,
-                )
+                step_coord = self.GetFootStep(gaitState, Tstance, p_bf, i)
             else:
                 step_coord = np.array([0.0, 0.0, 0.0])
             for j in range(3):
