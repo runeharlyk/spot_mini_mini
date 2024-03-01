@@ -12,26 +12,6 @@ class Phase(Enum):
 
 
 def TransToRp(T):
-    """
-    Converts a homogeneous transformation matrix into a rotation matrix
-    and position vector
-
-    :param T: A homogeneous transformation matrix
-    :return R: The corresponding rotation matrix,
-    :return p: The corresponding position vector.
-
-    Example Input:
-        T = np.array([[1, 0,  0, 0],
-                      [0, 0, -1, 0],
-                      [0, 1,  0, 3],
-                      [0, 0,  0, 1]])
-
-    Output:
-        (np.array([[1, 0,  0],
-                   [0, 0, -1],
-                   [0, 1,  0]]),
-         np.array([0, 0, 3]))
-    """
     T = np.array(T)
     return T[0:3, 0:3], T[0:3, 3]
 
@@ -68,8 +48,6 @@ class BezierGait():
         self.phases = self.leg_phases
 
     def reset(self):
-        """Resets the parameters of the Bezier Gait Generator
-        """
         self.Prev_fxyz = [0.0, 0.0, 0.0, 0.0]
         self.time = 0.0
         self.touch_down_time = 0.0
@@ -125,10 +103,8 @@ class BezierGait():
         # Touchdown at End of Swing
         Sw_phase = min(Sw_phase, 1.0)
         if index == self.ref_idx:
-            # print("SWING REF: {}".format(Sw_phase))
             self.phase = StanceSwing
             self.SwRef = Sw_phase
-            # REF Touchdown at End of Swing
             if self.SwRef >= 0.999:
                 self.touch_down = True
             # else:
@@ -154,30 +130,24 @@ class BezierGait():
 
         :param dt: the time step
                       phase lag
-        :param Tstride: the total leg movement period (Tstance + Tswing)
         :return: the leg's time index
         """
-        Tstride = self.t_stance + self.t_swing
-        self.CheckTouchDown()
+        self.t_stride = self.t_stance + self.t_swing
+        self._check_touch_down()
         self.last_touch_down_time = self.time - self.touch_down_time
-        if self.last_touch_down_time > Tstride:
-            self.last_touch_down_time = Tstride
+        if self.last_touch_down_time > self.t_stride:
+            self.last_touch_down_time = self.t_stride
         elif self.last_touch_down_time < 0.0:
             self.last_touch_down_time = 0.0
-        # print("T STRIDE: {}".format(Tstride))
-        # Increment Time at the end in case TD just happened
-        # So that we get time_since_last_TD = 0.0
         self.time += dt
 
-        # If Tstride = Tswing, Tstance = 0
-        # RESET ALL
-        if Tstride < self.t_swing + dt:
+        if self.t_stride < self.t_swing + dt:
             self.time = 0.0
             self.last_touch_down_time = 0.0
             self.touch_down_time = 0.0
             self.SwRef = 0.0
 
-    def CheckTouchDown(self):
+    def _check_touch_down(self):
         """Checks whether a reference leg touchdown
            has occured, and whether this warrants
            resetting the touchdown time
@@ -187,7 +157,7 @@ class BezierGait():
             self.touch_down = False
             self.SwRef = 0.0
 
-    def BernSteinPoly(self, t, k, point):
+    def _bern_stein_poly(self, t, k, point):
         """Calculate the point on the Berinstein Polynomial
            based on phase (0->1), point number (0-11),
            and the value of the control point itself
@@ -199,12 +169,12 @@ class BezierGait():
         """
         return (
             point
-            * self.Binomial(k)
+            * self._binomial(k)
             * np.power(t, k)
             * np.power(1 - t, self.num_control_points - k)
         )
 
-    def Binomial(self, k):
+    def _binomial(self, k):
         """Solves the binomial theorem given a Bezier point number
            relative to the total number of Bezier points.
 
@@ -215,7 +185,7 @@ class BezierGait():
             np.math.factorial(k) * np.math.factorial(self.num_control_points - k)
         )
 
-    def BezierSwing(self, phase, L, lateral_fraction, clearance_height=0.04):
+    def _bezier_swing(self, phase, L, lateral_fraction, clearance_height=0.04):
         """Calculates the step coordinates for the Bezier (swing) period
 
         :param phase: current trajectory phase
@@ -225,10 +195,6 @@ class BezierGait():
 
         :returns: X,Y,Z Foot Coordinates relative to unmodified body
         """
-
-        # Polar Leg Coords
-        X_POLAR = np.cos(lateral_fraction)
-        Y_POLAR = np.sin(lateral_fraction)
 
         # Bezier Curve Points (12 pts)
         # NOTE: L is HALF of STEP LENGTH
@@ -250,12 +216,12 @@ class BezierGait():
         # Account for lateral movements by multiplying with polar coord.
         # lateral_fraction switches leg movements from X over to Y+ or Y-
         # As it tends away from zero
-        X = STEP * X_POLAR
+        X = STEP * np.cos(lateral_fraction)
 
         # Account for lateral movements by multiplying with polar coord.
         # lateral_fraction switches leg movements from X over to Y+ or Y-
         # As it tends away from zero
-        Y = STEP * Y_POLAR
+        Y = STEP * np.sin(lateral_fraction)
 
         # Vertical Component
         Z = np.array([
@@ -278,9 +244,9 @@ class BezierGait():
         stepZ = 0.
         # Bernstein Polynomial sum over control points
         for i in range(len(X)):
-            stepX += self.BernSteinPoly(phase, i, X[i])
-            stepY += self.BernSteinPoly(phase, i, Y[i])
-            stepZ += self.BernSteinPoly(phase, i, Z[i])
+            stepX += self._bern_stein_poly(phase, i, X[i])
+            stepY += self._bern_stein_poly(phase, i, Y[i])
+            stepZ += self._bern_stein_poly(phase, i, Z[i])
 
         return stepX, stepY, stepZ
 
@@ -334,7 +300,7 @@ class BezierGait():
 
         return phi_arc
 
-    def SwingStep(self, phase, gaitState, T_bf, index):
+    def swing_step(self, phase, gaitState, T_bf, index):
         """Calculates the step coordinates for the Bezier (swing) period
         using a combination of forward and rotational step coordinates
         initially decomposed from user input of
@@ -356,14 +322,14 @@ class BezierGait():
         phi_arc = self.yaw_circle(T_bf, index)
 
         # Get Foot Coordinates for Forward Motion
-        X_delta_lin, Y_delta_lin, Z_delta_lin = self.BezierSwing(
+        X_delta_lin, Y_delta_lin, Z_delta_lin = self._bezier_swing(
             phase,
             gaitState.step_length,
             gaitState.lateral_fraction,
             gaitState.clearance_height,
         )
 
-        X_delta_rot, Y_delta_rot, Z_delta_rot = self.BezierSwing(
+        X_delta_rot, Y_delta_rot, Z_delta_rot = self._bezier_swing(
             phase, gaitState.yaw_rate, phi_arc, gaitState.clearance_height
         )
 
@@ -376,7 +342,7 @@ class BezierGait():
 
         return coord
 
-    def StanceStep(self, phase, gaitState, T_bf, index):
+    def stance_step(self, phase, gaitState, T_bf, index):
         """Calculates the step coordinates for the Sine (stance) period
         using a combination of forward and rotational step coordinates
         initially decomposed from user input of
@@ -431,9 +397,9 @@ class BezierGait():
         # Just for keeping track
         self.phases[index] = stored_phase
         if StanceSwing == Phase.STANCE:
-            return self.StanceStep(phase, gaitState, body_foot, index)
+            return self.stance_step(phase, gaitState, body_foot, index)
         elif StanceSwing == Phase.SWING:
-            return self.SwingStep(phase, gaitState, body_foot, index)
+            return self.swing_step(phase, gaitState, body_foot, index)
 
     def generate_trajectory(self, bodyState, gaitState, dt):
         """Calculates the step coordinates for each foot"""
