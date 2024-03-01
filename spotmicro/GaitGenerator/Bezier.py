@@ -283,11 +283,10 @@ class BezierGait():
         step = L * (1.0 - 2.0 * phase)
         stepX = step * X_POLAR
         stepY = step * Y_POLAR
+        stepZ = 0.0
         if L != 0.0:
-            stepZ = -penetration_depth * np.cos(
-                (np.pi * (stepX + stepY)) / (2.0 * L))
-        else:
-            stepZ = 0.0
+            stepZ = -penetration_depth * np.cos((np.pi * (stepX + stepY)) / (2.0 * L))
+
         return stepX, stepY, stepZ
 
     def YawCircle(self, T_bf, index):
@@ -313,12 +312,8 @@ class BezierGait():
         th_mod = np.arctan2(g_mag, DefaultBodyToFoot_Magnitude)
 
         # Angle Traced by Foot for Rotation
-        # FR and BL
-        if index == 1 or index == 2:
-            phi_arc = np.pi / 2.0 + DefaultBodyToFoot_Direction + th_mod
-        # FL and BR
-        else:
-            phi_arc = np.pi / 2.0 - DefaultBodyToFoot_Direction + th_mod
+        phi_arc = np.pi / 2.0 + th_mod
+        phi_arc += DefaultBodyToFoot_Direction * 1 if index == 1 or index == 2 else -1
 
         return phi_arc
 
@@ -366,20 +361,16 @@ class BezierGait():
 
     def StanceStep(self, phase, gaitState, T_bf, index):
         """Calculates the step coordinates for the Sine (stance) period
-           using a combination of forward and rotational step coordinates
-           initially decomposed from user input of
-           L, LateralFraction and YawRate
+        using a combination of forward and rotational step coordinates
+        initially decomposed from user input of
+        L, LateralFraction and YawRate
 
-           :param phase: current trajectory phase
-           :param L: step length
-           :param LateralFraction: determines how lateral the movement is
-           :param YawRate: the desired body yaw rate
-           :param penetration_depth: foot penetration depth during stance phase
-           :param T_bf: default body-to-foot Vector
-           :param key: indicates which foot is being processed
-           :param index: the foot index in the container
+        :param phase: current trajectory phase
+        :param gaitState: current gait state
+        :param T_bf: default body-to-foot Vector
+        :param index: the foot index in the container
 
-           :returns: Foot Coordinates relative to unmodified body
+        :returns: Foot Coordinates relative to unmodified body
         """
 
         # Yaw foot angle for tangent-to-circle motion
@@ -408,29 +399,20 @@ class BezierGait():
 
     def GetFootStep(self, gaitState, T_bf, index):
         """Calculates the step coordinates in either the Bezier or
-           Sine portion of the trajectory depending on the retrieved phase
+        Sine portion of the trajectory depending on the retrieved phase
 
-           :param phase: current trajectory phase
-           :param L: step length
-           :param LateralFraction: determines how lateral the movement is
-           :param YawRate: the desired body yaw rate
-           :param clearance_height: foot clearance height during swing phase
-           :param penetration_depth: foot penetration depth during stance phase
-           :param Tstance: the current user-specified stance period
-           :param T_bf: default body-to-foot Vector
-           :param index: the foot index in the container
-           :param key: indicates which foot is being processed
+        :param T_bf: default body-to-foot Vector
+        :param index: the foot index in the container
 
-           :returns: Foot Coordinates relative to unmodified body
+        :returns: Foot Coordinates relative to unmodified body
         """
         phase, StanceSwing = self.GetPhase(index)
+        stored_phase = phase
         if StanceSwing == SWING:
-            stored_phase = phase + 1.0
-        else:
-            stored_phase = phase
+            stored_phase += 1.0
+
         # Just for keeping track
         self.Phases[index] = stored_phase
-        # print("LEG: {} \t PHASE: {}".format(index, stored_phase))
         if StanceSwing == STANCE:
             return self.StanceStep(phase, gaitState, T_bf, index)
         elif StanceSwing == SWING:
@@ -467,9 +449,9 @@ class BezierGait():
         for i, (key, Tbf_in) in enumerate(bodyState.worldFeetPositions.items()):
             self.ref_idx = i if key == "FL" else self.ref_idx
             self.dSref[i] = ref_dS[key]
-            _, p_bf = TransToRp(Tbf_in)
+            _, leg_feet_positions = TransToRp(Tbf_in)
             step_coord = (
-                self.GetFootStep(gaitState, p_bf, i)
+                self.GetFootStep(gaitState, leg_feet_positions, i)
                 if self.Tstance > 0.0
                 else np.array([0.0, 0.0, 0.0])
             )
