@@ -15,20 +15,20 @@ from spotmicro.OpenLoopSM.SpotOL import BezierStepper
 
 class GaitState:
     def __init__(self) -> None:
-        self.stepLength = 0.0
-        self.yawRate = 0
-        self.lateralFraction = 0
-        self.stepVelocity = 0.001
-        self.swingPeriod = 0.2
-        self.clearanceHeight = 0.045
-        self.penetrationDepth = 0.003
+        self.step_length = 0.0
+        self.yaw_rate = 0
+        self.lateral_fraction = 0
+        self.step_velocity = 0.001
+        self.swing_period = 0.2
+        self.clearance_height = 0.045
+        self.penetration_depth = 0.003
         self.contacts = [False] * 4
 
-        self.targetStepLength = 0
+        self.targetstep_length = 0
 
-    def updateStepLength(self, dt):
-        if self.stepLength < self.targetStepLength:
-            self.stepLength += self.targetStepLength * dt
+    def updatestep_length(self, dt):
+        if self.step_length < self.targetstep_length:
+            self.step_length += self.targetstep_length * dt
 
 
 class BodyState:
@@ -62,12 +62,12 @@ class Gait:
         self.dt = 0.01
 
     def step(self):
-        self.gaitState.updateStepLength(self.dt)
+        self.gaitState.updatestep_length(self.dt)
         self.gui.UserInput(self.bodyState, self.gaitState)
         self.gaitState.contacts = self.state[-4:]
         self.bodyState.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
 
-        self.bezierGait.GenerateTrajectory(self.bodyState, self.gaitState, self.dt)
+        self.bezierGait.generate_trajectory(self.bodyState, self.gaitState, self.dt)
 
         self.updateEnvironment()
 

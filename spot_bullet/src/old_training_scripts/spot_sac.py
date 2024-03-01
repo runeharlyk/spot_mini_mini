@@ -152,10 +152,17 @@ def main():
         contacts = state[-4:]
 
         # Get Desired Foot Poses
-        T_bf = bzg.GenerateTrajectory(StepLength, LateralFraction, YawRate,
-                                      StepVelocity, T_bf0, T_bf,
-                                      ClearanceHeight, PenetrationDepth,
-                                      contacts)
+        T_bf = bzg.generate_trajectory(
+            StepLength,
+            LateralFraction,
+            YawRate,
+            StepVelocity,
+            T_bf0,
+            T_bf,
+            ClearanceHeight,
+            PenetrationDepth,
+            contacts,
+        )
         # Add DELTA to XYZ Foot Poses
         RESIDUALS_SCALE = 0.05
         # T_bf["FL"][3, :3] += action[6:9] * RESIDUALS_SCALE
