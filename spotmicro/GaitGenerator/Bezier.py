@@ -264,12 +264,10 @@ class BezierGait():
 
         :returns: X,Y,Z Foot Coordinates relative to unmodified body
         """
-        X_POLAR = np.cos(lateral_fraction)
-        Y_POLAR = np.sin(lateral_fraction)
         # moves from +L to -L
         step = L * (1.0 - 2.0 * phase)
-        stepX = step * X_POLAR
-        stepY = step * Y_POLAR
+        stepX = step * np.cos(lateral_fraction)
+        stepY = step * np.sin(lateral_fraction)
         stepZ = 0.0
         if L != 0.0:
             stepZ = -penetration_depth * np.cos((np.pi * (stepX + stepY)) / (2.0 * L))

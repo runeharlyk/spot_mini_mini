@@ -80,9 +80,11 @@ class GUI:
                 pb.readUserDebugParameter(self.yawId),
             ]
         )
-        gaitState.step_length = pb.readUserDebugParameter(self.StepLengthID)
-        gaitState.yaw_rate = pb.readUserDebugParameter(self.YawRateId)
-        gaitState.lateral_fraction = pb.readUserDebugParameter(self.LateralFractionId)
+        gaitState.target_step_length = pb.readUserDebugParameter(self.StepLengthID)
+        gaitState.target_yaw_rate = pb.readUserDebugParameter(self.YawRateId)
+        gaitState.target_lateral_fraction = pb.readUserDebugParameter(
+            self.LateralFractionId
+        )
         gaitState.step_velocity = pb.readUserDebugParameter(self.StepVelocityId)
         gaitState.clearance_height = pb.readUserDebugParameter(self.ClearanceHeightId)
         gaitState.penetration_depth = pb.readUserDebugParameter(self.PenetrationDepthId)

@@ -24,11 +24,16 @@ class GaitState:
         self.penetration_depth = 0.003
         self.contacts = [False] * 4
 
-        self.targetstep_length = 0
+        self.target_step_length = 0
+        self.target_yaw_rate = 0
+        self.target_lateral_fraction = 0
 
-    def updatestep_length(self, dt):
-        if self.step_length < self.targetstep_length:
-            self.step_length += self.targetstep_length * dt
+    def update_gait_state(self, dt):
+        self.step_length = self.step_length * (1 - dt) + self.target_step_length * dt
+        self.lateral_fraction = (
+            self.lateral_fraction * (1 - dt) + self.target_lateral_fraction * dt
+        )
+        self.yaw_rate = self.yaw_rate * (1 - dt) + self.target_yaw_rate * dt
 
 
 class BodyState:
@@ -50,37 +55,37 @@ class Gait:
     ) -> None:
         self.env = env
         self.gui = gui
-        self.bodyState = bodyState
-        self.gaitState = gaitState
+        self.body_state = bodyState
+        self.gait_state = gaitState
         self.spot = spotModel
-        self.bezierGait = bezierGait
+        self.bezier_gait = bezierGait
 
         self.state = self.env.reset()
         self.action = self.env.action_space.sample()
-        self.bodyState.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
+        self.body_state.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
 
         self.dt = 0.01
 
     def step(self):
-        self.gaitState.updatestep_length(self.dt)
-        self.gui.UserInput(self.bodyState, self.gaitState)
-        self.gaitState.contacts = self.state[-4:]
-        self.bodyState.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
+        self.gait_state.update_gait_state(self.dt)
+        self.gui.UserInput(self.body_state, self.gait_state)
+        self.gait_state.contacts = self.state[-4:]
+        self.body_state.worldFeetPositions = copy.deepcopy(self.spot.WorldToFoot)
 
-        self.bezierGait.generate_trajectory(self.bodyState, self.gaitState, self.dt)
+        self.bezier_gait.generate_trajectory(self.body_state, self.gait_state, self.dt)
 
-        self.updateEnvironment()
+        self.update_environment()
 
         self.state, _, done, _ = self.env.step(self.action)
         if done:
             print("DONE")
             return True
 
-    def updateEnvironment(self):
+    def update_environment(self):
         joint_angles = self.spot.IK(
-            self.bodyState.rotation,
-            self.bodyState.position,
-            self.bodyState.worldFeetPositions,
+            self.body_state.rotation,
+            self.body_state.position,
+            self.body_state.worldFeetPositions,
         )
         self.env.pass_joint_angles(joint_angles.reshape(-1))
 
